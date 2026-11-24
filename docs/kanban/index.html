@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PA/PB 优化任务看板</title>
+<style>
+  :root {
+    --navy: #0b2a4a;
+    --blue: #1f6fb2;
+    --red: #c83e3e;
+    --green: #2e8b57;
+    --orange: #e08e1b;
+    --gray: #5f6b7a;
+    --light: #f2f5f9;
+    --border: #d9e1ea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    background: var(--light);
+    color: #222;
+  }
+  header {
+    background: var(--navy);
+    color: #fff;
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 { margin: 0; font-size: 22px; }
+  header .stats { font-size: 14px; color: #c9d9ea; }
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 16px 28px 0;
+    flex-wrap: wrap;
+  }
+  .toolbar input, .toolbar select {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .toolbar input { flex: 1; min-width: 200px; }
+  .btn {
+    padding: 8px 14px;
+    border: none;
+    border-radius: 6px;
+    background: var(--blue);
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn-ghost { background: #fff; color: var(--gray); border: 1px solid var(--border); }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    padding: 16px 28px 28px;
+  }
+  @media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+  .column {
+    background: #fff;
+    border-radius: 10px;
+    border-top: 4px solid var(--blue);
+    padding: 12px;
+    min-height: 480px;
+    display: flex;
+    flex-direction: column;
+  }
+  .column h2 {
+    margin: 4px 4px 12px;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .count {
+    background: var(--light);
+    color: var(--gray);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 13px;
+  }
+  .column.drag-over { background: #e8f1fa; }
+  .cards { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--light);
+    border-left: 4px solid var(--blue);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: grab;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .card.dragging { opacity: 0.5; }
+  .card .title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .card .meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--gray); }
+  .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 12px;
+  }
+  .tag.high { background: var(--red); }
+  .tag.medium { background: var(--orange); }
+  .tag.low { background: var(--green); }
+  .card .del {
+    background: none;
+    border: none;
+    color: var(--gray);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+  }
+  .card .del:hover { color: var(--red); }
+  .empty { color: #aab4c0; text-align: center; padding: 30px 0; font-size: 14px; }
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 10px;
+    padding: 24px;
+    width: min(420px, 90vw);
+  }
+  .modal h3 { margin: 0 0 14px; }
+  .modal label { display: block; font-size: 13px; color: var(--gray); margin: 10px 0 4px; }
+  .modal input, .modal select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PA/PB 优化任务看板</h1>
+  <div class="stats" id="stats"></div>
+</header>
+
+<div class="toolbar">
+  <input id="search" type="text" placeholder="搜索任务...">
+  <select id="priorityFilter">
+    <option value="all">全部优先级</option>
+    <option value="high">高</option>
+    <option value="medium">中</option>
+    <option value="low">低</option>
+  </select>
+  <button class="btn" id="addBtn">+ 新建任务</button>
+  <button class="btn btn-ghost" id="resetBtn">恢复示例数据</button>
+</div>
+
+<div class="board" id="board"></div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3>新建任务</h3>
+    <label for="newTitle">任务名称</label>
+    <input id="newTitle" type="text" placeholder="请输入任务名称">
+    <label for="newPriority">优先级</label>
+    <select id="newPriority">
+      <option value="high">高</option>
+      <option value="medium" selected>中</option>
+      <option value="low">低</option>
+    </select>
+    <label for="newStatus">状态</label>
+    <select id="newStatus">
+      <option value="todo">待办</option>
+      <option value="doing">进行中</option>
+      <option value="done">已完成</option>
+    </select>
+    <div class="actions">
+      <button class="btn btn-ghost" id="cancelBtn">取消</button>
+      <button class="btn" id="saveBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const STORAGE_KEY = "pa-pb-kanban-v1";
+  const COLUMNS = [
+    { key: "todo", title: "待办", color: "var(--gray)" },
+    { key: "doing", title: "进行中", color: "var(--blue)" },
+    { key: "done", title: "已完成", color: "var(--green)" }
+  ];
+  const PRIORITY_LABEL = { high: "高", medium: "中", low: "低" };
+
+  const SEED = [
+    { id: 1, title: "导出 PA/PB 当前配置并备份", status: "todo", priority: "high" },
+    { id: 2, title: "记录上行干扰、BLER、吞吐、PRACH 基线", status: "todo", priority: "high" },
+    { id: 3, title: "选择单小区试点并确认变更窗口", status: "todo", priority: "medium" },
+    { id: 4, title: "执行 MOD PDSCHCFGPARA 修改为 PA=dB0, PB=0", status: "todo", priority: "high" },
+    { id: 5, title: "LST PDSCHCFGPARA 核对参数生效", status: "todo", priority: "medium" },
+    { id: 6, title: "观察 24-48 小时上行指标", status: "doing", priority: "high" },
+    { id: 7, title: "编写试点效果评估报告", status: "doing", priority: "low" },
+    { id: 8, title: "方案评审与审批", status: "done", priority: "medium" }
+  ];
+
+  let tasks = load();
+  let nextId = tasks.reduce((m, t) => Math.max(m, t.id), 0) + 1;
+  let dragId = null;
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) { /* ignore corrupt data */ }
+    return SEED.map(t => ({ ...t }));
+  }
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  }
+
+  function visibleTasks() {
+    const q = document.getElementById("search").value.trim().toLowerCase();
+    const p = document.getElementById("priorityFilter").value;
+    return tasks.filter(t =>
+      (p === "all" || t.priority === p) &&
+      (!q || t.title.toLowerCase().includes(q))
+    );
+  }
+
+  function render() {
+    const board = document.getElementById("board");
+    board.innerHTML = "";
+    const shown = visibleTasks();
+
+    COLUMNS.forEach(col => {
+      const colTasks = shown.filter(t => t.status === col.key);
+      const column = document.createElement("div");
+      column.className = "column";
+      column.style.borderTopColor = col.color;
+
+      const header = document.createElement("h2");
+      const label = document.createElement("span");
+      label.textContent = col.title;
+      const count = document.createElement("span");
+      count.className = "count";
+      count.textContent = colTasks.length;
+      header.appendChild(label);
+      header.appendChild(count);
+      column.appendChild(header);
+
+      const cards = document.createElement("div");
+      cards.className = "cards";
+
+      if (colTasks.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "暂无任务";
+        cards.appendChild(empty);
+      }
+
+      colTasks.forEach(t => cards.appendChild(buildCard(t)));
+      column.appendChild(cards);
+
+      column.addEventListener("dragover", e => {
+        e.preventDefault();
+        column.classList.add("drag-over");
+      });
+      column.addEventListener("dragleave", () => column.classList.remove("drag-over"));
+      column.addEventListener("drop", e => {
+        e.preventDefault();
+        column.classList.remove("drag-over");
+        moveTask(dragId, col.key);
+      });
+
+      board.appendChild(column);
+    });
+
+    renderStats();
+  }
+
+  function buildCard(t) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.draggable = true;
+    card.style.borderLeftColor = priorityColor(t.priority);
+
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = t.title;
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+
+    const tag = document.createElement("span");
+    tag.className = "tag " + t.priority;
+    tag.textContent = PRIORITY_LABEL[t.priority] + "优先级";
+
+    const del = document.createElement("button");
+    del.className = "del";
+    del.title = "删除";
+    del.textContent = "×";
+    del.addEventListener("click", () => deleteTask(t.id));
+
+    meta.appendChild(tag);
+    meta.appendChild(del);
+    card.appendChild(title);
+    card.appendChild(meta);
+
+    card.addEventListener("dragstart", () => {
+      dragId = t.id;
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", () => card.classList.remove("dragging"));
+    return card;
+  }
+
+  function priorityColor(p) {
+    return p === "high" ? "var(--red)" : p === "medium" ? "var(--orange)" : "var(--green)";
+  }
+
+  function renderStats() {
+    const total = tasks.length;
+    const done = tasks.filter(t => t.status === "done").length;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    document.getElementById("stats").textContent =
+      `共 ${total} 项 · 已完成 ${done} 项 · 完成率 ${pct}%`;
+  }
+
+  function moveTask(id, status) {
+    const t = tasks.find(x => x.id === id);
+    if (!t || t.status === status) return;
+    t.status = status;
+    save();
+    render();
+  }
+
+  function deleteTask(id) {
+    if (!confirm("确定删除该任务？")) return;
+    tasks = tasks.filter(t => t.id !== id);
+    save();
+    render();
+  }
+
+  function openModal() {
+    document.getElementById("newTitle").value = "";
+    document.getElementById("modalBg").classList.add("show");
+    document.getElementById("newTitle").focus();
+  }
+
+  function closeModal() {
+    document.getElementById("modalBg").classList.remove("show");
+  }
+
+  function addTask() {
+    const title = document.getElementById("newTitle").value.trim();
+    if (!title) {
+      alert("请输入任务名称");
+      return;
+    }
+    tasks.push({
+      id: nextId++,
+      title,
+      status: document.getElementById("newStatus").value,
+      priority: document.getElementById("newPriority").value
+    });
+    save();
+    closeModal();
+    render();
+  }
+
+  document.getElementById("addBtn").addEventListener("click", openModal);
+  document.getElementById("cancelBtn").addEventListener("click", closeModal);
+  document.getElementById("saveBtn").addEventListener("click", addTask);
+  document.getElementById("newTitle").addEventListener("keydown", e => {
+    if (e.key === "Enter") addTask();
+  });
+  document.getElementById("modalBg").addEventListener("click", e => {
+    if (e.target.id === "modalBg") closeModal();
+  });
+  document.getElementById("search").addEventListener("input", render);
+  document.getElementById("priorityFilter").addEventListener("change", render);
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    if (!confirm("将清空当前数据并恢复示例，确定继续？")) return;
+    tasks = SEED.map(t => ({ ...t }));
+    nextId = tasks.reduce((m, t) => Math.max(m, t.id), 0) + 1;
+    save();
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
